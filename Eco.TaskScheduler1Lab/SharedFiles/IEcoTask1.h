@@ -56,6 +56,8 @@ typedef struct IEcoTask1VTbl {
      */
     int16_t (ECOCALLMETHOD *Yield)(/*in*/ IEcoTask1Ptr_t me);
 
+	int16_t (ECOCALLMETHOD *SetDuration)(/*in*/ IEcoTask1Ptr_t me, uint64_t duration);
+
 } IEcoTask1VTbl, *IEcoTask1VTblPtr;
 
 interface IEcoTask1 {

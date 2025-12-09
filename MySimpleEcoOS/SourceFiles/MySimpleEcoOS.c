@@ -21,8 +21,6 @@
 /* Eco OS */
 #include "IEcoSystem1.h"
 #include "IdEcoMemoryManager1.h"
-#include "IdEcoMemoryManager1Lab.h"
-#include "IEcoVirtualMemory1.h"
 #include "IEcoTaskScheduler1.h"
 #include "IdEcoTaskScheduler1Lab.h"
 #include "IdEcoTimer1.h"
@@ -33,27 +31,25 @@
 #include "IdEcoIPCCMailbox1.h"
 #include "IdEcoVFB1.h"
 #include "IEcoVBIOS1Video.h"
-#include "IdEcoMutex1Lab.h"
-#include "IdEcoSemaphore1Lab.h"
 
 /* Начало свободного участка памяти */
 extern char_t __heap_start__;
 
-/* Указатель на интерфейс для работы c мьютекс */
-IEcoMutex1* g_pIMutex = 0;
-/* Указатель на интерфейс для работы c семафор */
-IEcoSemaphore1* g_pISemaphore = 0;
-
 /* Указатель на интерфейсы */
+IEcoVFB1* g_pIVFB = 0;
 IEcoVBIOS1Video* g_pIVideo = 0;
 IEcoSystemTimer1* g_pISysTimer = 0;
 
+/* Указатель на строку */
+int32_t row_pointer = 0;
+
 char_t g_strTask[2] = {0};
 
+/* Для отображения прогресса выполнения задачи */
+int32_t task_progress = 0; // в процентах
 
 void TimerHandler(void) {
-    g_pIMutex->pVTbl->Lock(g_pIMutex);
-    //g_pISemaphore->pVTbl->Wait(g_pISemaphore, 0);
+    /* g_pIMutex->pVTbl->Lock(g_pIMutex); */
     if (g_strTask[0] == '\\') {
         g_strTask[0] = '|';
     }
@@ -66,66 +62,269 @@ void TimerHandler(void) {
     else  {
         g_strTask[0] = '\\';
     }
-    g_pIMutex->pVTbl->UnLock(g_pIMutex);
-    //g_pISemaphore->pVTbl->Post(g_pISemaphore);
+    /* g_pIMutex->pVTbl->UnLock(g_pIMutex); */
+}
+
+void PrintDuration(uint64_t duration) {
+	int32_t digit;
+	size_t i;
+	char* to_print = "Total duration: 0000000ms";
+	for (i = 0; i < 7; ++i) {
+		digit = duration % 10;
+		to_print[22 - i] = '0' + digit;
+		duration /= 10;
+	}
+	g_pIVideo->pVTbl->WriteString(g_pIVideo, 0, 0, 26, 1, CHARACTER_ATTRIBUTE_FORE_COLOR_LIGHT_RED, to_print, 25);
+}
+
+void PrintResult(IEcoVBIOS1Video* pIVideo, int16_t result, uint32_t column, uint32_t row) {
+	int32_t digit;
+	char* to_print = "00";
+	g_pIVideo->pVTbl->WriteString(g_pIVideo, 0, 0, column, row, CHARACTER_ATTRIBUTE_FORE_COLOR_LIGHT_RED, to_print, 2);
+	if (result < 0) {
+		to_print[0] = '-';
+		result = -result;
+	}
+	digit = result % 10;
+	to_print[1] = '0' + digit;
+	g_pIVideo->pVTbl->WriteString(g_pIVideo, 0, 0, column, row, CHARACTER_ATTRIBUTE_FORE_COLOR_LIGHT_RED, to_print, 2);
+}
+
+void PrintPercent(int32_t percent, uint32_t column, uint32_t row) {
+	int32_t digit;
+	char* to_print = "00%";
+	digit = percent % 10;
+	to_print[1] = '0' + digit;
+	percent /= 10;
+	digit = percent % 10;
+	to_print[0] = '0' + digit;
+	g_pIVideo->pVTbl->WriteString(g_pIVideo, 0, 0, column, row, CHARACTER_ATTRIBUTE_FORE_COLOR_LIGHT_RED, to_print, 3);
 }
 
 void printProgress() {
-    if (g_strTask[0] == '\\') {
-        g_strTask[0] = '|';
-    }
-    else if (g_strTask[0] == '|') {
-        g_strTask[0] = '/';
-    }
-    else if (g_strTask[0] == '/') {
-        g_strTask[0] = '-';
-    }
-    else  {
-        g_strTask[0] = '\\';
-    }
-    g_pIVideo->pVTbl->WriteString(g_pIVideo, 0, 0, 1, 0, CHARACTER_ATTRIBUTE_FORE_COLOR_WHITTE, g_strTask, 1);
+	size_t i = 0;
+	//task_progress = task_progress % 100;
+	PrintPercent(task_progress, 22, 1);
+	task_progress /= 5;
+	g_pIVideo->pVTbl->WriteString(g_pIVideo, 0, 0, 0, 1, CHARACTER_ATTRIBUTE_FORE_COLOR_LIGHT_GREEN, "[", 1);
+	for (i = 1; i < task_progress; ++i) {
+		g_pIVideo->pVTbl->WriteString(g_pIVideo, 0, 0, i, 1, CHARACTER_ATTRIBUTE_FORE_COLOR_LIGHT_GREEN, "=", 1);
+	}
+	g_pIVideo->pVTbl->WriteString(g_pIVideo, 0, 0, task_progress, 1, CHARACTER_ATTRIBUTE_FORE_COLOR_LIGHT_GREEN, ">", 1);
+	for (i = task_progress + 1; i < 20; ++i) {
+		g_pIVideo->pVTbl->WriteString(g_pIVideo, 0, 0, i, 1, CHARACTER_ATTRIBUTE_FORE_COLOR_LIGHT_GREEN, " ", 1);
+	}
+	g_pIVideo->pVTbl->WriteString(g_pIVideo, 0, 0, 20, 1, CHARACTER_ATTRIBUTE_FORE_COLOR_LIGHT_GREEN, "] ", 2);
 }
 
-void Task1() {
+void Task1(uint64_t duration) {
+	PrintDuration(duration);
     uint64_t currentTime = g_pISysTimer->pVTbl->get_SingleTimerCounter(g_pISysTimer);
-    uint64_t endTime = currentTime +  5000000ul;
+    uint64_t endTime = currentTime + duration;
     uint64_t changeTime = currentTime;
-    g_pIVideo->pVTbl->WriteString(g_pIVideo, 0, 0, 0, 0, CHARACTER_ATTRIBUTE_FORE_COLOR_WHITTE, "1", 1);
+	uint64_t startTime = currentTime;
+	task_progress = 0;
+	++row_pointer;
+    g_pIVideo->pVTbl->WriteString(g_pIVideo, 0, 0, 2, row_pointer, CHARACTER_ATTRIBUTE_FORE_COLOR_MAGENTA, "Job A initiated", 15);
+	g_pIVideo->pVTbl->WriteString(g_pIVideo, 0, 0, 12, 0, CHARACTER_ATTRIBUTE_FORE_COLOR_MAGENTA, "Job A", 5);
     while ( endTime >= currentTime) {
-        if (changeTime >= currentTime) {
+        if (changeTime <= currentTime) {
+			task_progress = (changeTime - startTime) * 100 / duration;
             printProgress();
-            changeTime += 50000ul;
+            changeTime += duration / 100;
         }
         currentTime = g_pISysTimer->pVTbl->get_SingleTimerCounter(g_pISysTimer);
     }
+	g_pIVideo->pVTbl->WriteString(g_pIVideo, 0, 0, 25, row_pointer, CHARACTER_ATTRIBUTE_FORE_COLOR_GREEN, " -> Job A completed", 19);
 }
 
-void Task2() {
+void Task2(uint64_t duration) {
+	PrintDuration(duration);
     uint64_t currentTime = g_pISysTimer->pVTbl->get_SingleTimerCounter(g_pISysTimer);
-    uint64_t endTime = currentTime +  5000000ul;
+    uint64_t endTime = currentTime + duration;
     uint64_t changeTime = currentTime;
-    g_pIVideo->pVTbl->WriteString(g_pIVideo, 0, 0, 0, 0, CHARACTER_ATTRIBUTE_FORE_COLOR_WHITTE, "2", 1);
+	uint64_t startTime = currentTime;
+	++row_pointer;
+	g_pIVideo->pVTbl->WriteString(g_pIVideo, 0, 0, 2, row_pointer, CHARACTER_ATTRIBUTE_FORE_COLOR_MAGENTA, "Process B launched", 18);
+    g_pIVideo->pVTbl->WriteString(g_pIVideo, 0, 0, 12, 0, CHARACTER_ATTRIBUTE_FORE_COLOR_MAGENTA, "Process B", 9);
+	task_progress = 0;
     while ( endTime >= currentTime) {
-        if (changeTime >= currentTime) {
+        if (changeTime <= currentTime) {
+			task_progress = (changeTime - startTime) * 100 / duration;
             printProgress();
-            changeTime += 50000ul;
+            changeTime += duration / 100;
         }
         currentTime = g_pISysTimer->pVTbl->get_SingleTimerCounter(g_pISysTimer);
     }
+	g_pIVideo->pVTbl->WriteString(g_pIVideo, 0, 0, 25, row_pointer, CHARACTER_ATTRIBUTE_FORE_COLOR_GREEN, " -> Process B terminated", 24);
 }
 
-void Task3() {
+void Task3(uint64_t duration) {
+	PrintDuration(duration);
     uint64_t currentTime = g_pISysTimer->pVTbl->get_SingleTimerCounter(g_pISysTimer);
-    uint64_t endTime = currentTime +  5000000ul;
+    uint64_t endTime = currentTime + duration;
     uint64_t changeTime = currentTime;
-    g_pIVideo->pVTbl->WriteString(g_pIVideo, 0, 0, 0, 0, CHARACTER_ATTRIBUTE_FORE_COLOR_WHITTE, "3", 1);
+	uint64_t startTime = currentTime;
+	task_progress = 0;
+	++row_pointer;
+	g_pIVideo->pVTbl->WriteString(g_pIVideo, 0, 0, 2, row_pointer, CHARACTER_ATTRIBUTE_FORE_COLOR_MAGENTA, "Operation C running", 19);
+    g_pIVideo->pVTbl->WriteString(g_pIVideo, 0, 0, 12, 0, CHARACTER_ATTRIBUTE_FORE_COLOR_MAGENTA, "Operation C", 11);
     while ( endTime >= currentTime) {
-        if (changeTime >= currentTime) {
+        if (changeTime <= currentTime) {
+			task_progress = (changeTime - startTime) * 100 / duration;
             printProgress();
-            changeTime += 50000ul;
+            changeTime += duration / 100;
         }
         currentTime = g_pISysTimer->pVTbl->get_SingleTimerCounter(g_pISysTimer);
     }
+	g_pIVideo->pVTbl->WriteString(g_pIVideo, 0, 0, 25, row_pointer, CHARACTER_ATTRIBUTE_FORE_COLOR_GREEN, " -> Operation C finished", 24);
+}
+
+void Task4(uint64_t duration) {
+	PrintDuration(duration);
+    uint64_t currentTime = g_pISysTimer->pVTbl->get_SingleTimerCounter(g_pISysTimer);
+    uint64_t endTime = currentTime + duration;
+    uint64_t changeTime = currentTime;
+	uint64_t startTime = currentTime;
+	task_progress = 0;
+	++row_pointer;
+	g_pIVideo->pVTbl->WriteString(g_pIVideo, 0, 0, 2, row_pointer, CHARACTER_ATTRIBUTE_FORE_COLOR_MAGENTA, "Activity D executing", 20);
+    g_pIVideo->pVTbl->WriteString(g_pIVideo, 0, 0, 12, 0, CHARACTER_ATTRIBUTE_FORE_COLOR_MAGENTA, "Activity D", 10);
+    while ( endTime >= currentTime) {
+        if (changeTime <= currentTime) {
+			task_progress = (changeTime - startTime) * 100 / duration;
+            printProgress();
+            changeTime += duration / 100;
+        }
+        currentTime = g_pISysTimer->pVTbl->get_SingleTimerCounter(g_pISysTimer);
+    }
+	g_pIVideo->pVTbl->WriteString(g_pIVideo, 0, 0, 25, row_pointer, CHARACTER_ATTRIBUTE_FORE_COLOR_GREEN, " -> Activity D done", 19);
+}
+
+void Task5(uint64_t duration) {
+	PrintDuration(duration);
+    uint64_t currentTime = g_pISysTimer->pVTbl->get_SingleTimerCounter(g_pISysTimer);
+    uint64_t endTime = currentTime + duration;
+    uint64_t changeTime = currentTime;
+	uint64_t startTime = currentTime;
+	task_progress = 0;
+	++row_pointer;
+	g_pIVideo->pVTbl->WriteString(g_pIVideo, 0, 0, 2, row_pointer, CHARACTER_ATTRIBUTE_FORE_COLOR_MAGENTA, "Work E in progress", 18);
+    g_pIVideo->pVTbl->WriteString(g_pIVideo, 0, 0, 12, 0, CHARACTER_ATTRIBUTE_FORE_COLOR_MAGENTA, "Work E", 6);
+    while ( endTime >= currentTime) {
+        if (changeTime <= currentTime) {
+			task_progress = (changeTime - startTime) * 100 / duration;
+            printProgress();
+            changeTime += duration / 100;
+        }
+        currentTime = g_pISysTimer->pVTbl->get_SingleTimerCounter(g_pISysTimer);
+    }
+	g_pIVideo->pVTbl->WriteString(g_pIVideo, 0, 0, 25, row_pointer, CHARACTER_ATTRIBUTE_FORE_COLOR_GREEN, " -> Work E accomplished", 23);
+}
+
+void Task6(uint64_t duration) {
+	PrintDuration(duration);
+    uint64_t currentTime = g_pISysTimer->pVTbl->get_SingleTimerCounter(g_pISysTimer);
+    uint64_t endTime = currentTime + duration;
+    uint64_t changeTime = currentTime;
+	uint64_t startTime = currentTime;
+	task_progress = 0;
+	++row_pointer;
+	g_pIVideo->pVTbl->WriteString(g_pIVideo, 0, 0, 2, row_pointer, CHARACTER_ATTRIBUTE_FORE_COLOR_MAGENTA, "Procedure F started", 19);
+    g_pIVideo->pVTbl->WriteString(g_pIVideo, 0, 0, 12, 0, CHARACTER_ATTRIBUTE_FORE_COLOR_MAGENTA, "Procedure F", 11);
+    while ( endTime >= currentTime) {
+        if (changeTime <= currentTime) {
+			task_progress = (changeTime - startTime) * 100 / duration;
+            printProgress();
+            changeTime += duration / 100;
+        }
+        currentTime = g_pISysTimer->pVTbl->get_SingleTimerCounter(g_pISysTimer);
+    }
+	g_pIVideo->pVTbl->WriteString(g_pIVideo, 0, 0, 25, row_pointer, CHARACTER_ATTRIBUTE_FORE_COLOR_GREEN, " -> Procedure F ended", 21);
+}
+
+void Task7(uint64_t duration) {
+	PrintDuration(duration);
+    uint64_t currentTime = g_pISysTimer->pVTbl->get_SingleTimerCounter(g_pISysTimer);
+    uint64_t endTime = currentTime + duration;
+    uint64_t changeTime = currentTime;
+	uint64_t startTime = currentTime;
+	task_progress = 0;
+	++row_pointer;
+	g_pIVideo->pVTbl->WriteString(g_pIVideo, 0, 0, 2, row_pointer, CHARACTER_ATTRIBUTE_FORE_COLOR_MAGENTA, "Routine G activated", 19);
+    g_pIVideo->pVTbl->WriteString(g_pIVideo, 0, 0, 12, 0, CHARACTER_ATTRIBUTE_FORE_COLOR_MAGENTA, "Routine G", 9);
+    while ( endTime >= currentTime) {
+        if (changeTime <= currentTime) {
+			task_progress = (changeTime - startTime) * 100 / duration;
+            printProgress();
+            changeTime += duration / 100;
+        }
+        currentTime = g_pISysTimer->pVTbl->get_SingleTimerCounter(g_pISysTimer);
+    }
+	g_pIVideo->pVTbl->WriteString(g_pIVideo, 0, 0, 25, row_pointer, CHARACTER_ATTRIBUTE_FORE_COLOR_GREEN, " -> Routine G deactivated", 25);
+}
+
+void Task8(uint64_t duration) {
+	PrintDuration(duration);
+    uint64_t currentTime = g_pISysTimer->pVTbl->get_SingleTimerCounter(g_pISysTimer);
+    uint64_t endTime = currentTime + duration;
+    uint64_t changeTime = currentTime;
+	uint64_t startTime = currentTime;
+	task_progress = 0;
+	++row_pointer;
+	g_pIVideo->pVTbl->WriteString(g_pIVideo, 0, 0, 2, row_pointer, CHARACTER_ATTRIBUTE_FORE_COLOR_MAGENTA, "Execution H begun", 17);
+    g_pIVideo->pVTbl->WriteString(g_pIVideo, 0, 0, 12, 0, CHARACTER_ATTRIBUTE_FORE_COLOR_MAGENTA, "Execution H", 11);
+    while ( endTime >= currentTime) {
+        if (changeTime <= currentTime) {
+			task_progress = (changeTime - startTime) * 100 / duration;
+            printProgress();
+            changeTime += duration / 100;
+        }
+        currentTime = g_pISysTimer->pVTbl->get_SingleTimerCounter(g_pISysTimer);
+    }
+	g_pIVideo->pVTbl->WriteString(g_pIVideo, 0, 0, 25, row_pointer, CHARACTER_ATTRIBUTE_FORE_COLOR_GREEN, " -> Execution H concluded", 25);
+}
+
+void Task9(uint64_t duration) {
+	PrintDuration(duration);
+    uint64_t currentTime = g_pISysTimer->pVTbl->get_SingleTimerCounter(g_pISysTimer);
+    uint64_t endTime = currentTime + duration;
+    uint64_t changeTime = currentTime;
+	uint64_t startTime = currentTime;
+	task_progress = 0;
+	++row_pointer;
+	g_pIVideo->pVTbl->WriteString(g_pIVideo, 0, 0, 2, row_pointer, CHARACTER_ATTRIBUTE_FORE_COLOR_MAGENTA, "Function I commenced", 20);
+    g_pIVideo->pVTbl->WriteString(g_pIVideo, 0, 0, 12, 0, CHARACTER_ATTRIBUTE_FORE_COLOR_MAGENTA, "Function I", 10);
+    while ( endTime >= currentTime) {
+        if (changeTime <= currentTime) {
+			task_progress = (changeTime - startTime) * 100 / duration;
+            printProgress();
+            changeTime += duration / 100;
+        }
+        currentTime = g_pISysTimer->pVTbl->get_SingleTimerCounter(g_pISysTimer);
+    }
+	g_pIVideo->pVTbl->WriteString(g_pIVideo, 0, 0, 25, row_pointer, CHARACTER_ATTRIBUTE_FORE_COLOR_GREEN, " -> Function I terminated", 25);
+}
+
+void Task10(uint64_t duration) {
+	PrintDuration(duration);
+    uint64_t currentTime = g_pISysTimer->pVTbl->get_SingleTimerCounter(g_pISysTimer);
+    uint64_t endTime = currentTime + duration;
+    uint64_t changeTime = currentTime;
+	uint64_t startTime = currentTime;
+	task_progress = 0;
+	++row_pointer;
+	g_pIVideo->pVTbl->WriteString(g_pIVideo, 0, 0, 2, row_pointer, CHARACTER_ATTRIBUTE_FORE_COLOR_MAGENTA, "Module J processing", 19);
+    g_pIVideo->pVTbl->WriteString(g_pIVideo, 0, 0, 12, 0, CHARACTER_ATTRIBUTE_FORE_COLOR_MAGENTA, "Module J", 8);
+    while ( endTime >= currentTime) {
+        if (changeTime <= currentTime) {
+			task_progress = (changeTime - startTime) * 100 / duration;
+            printProgress();
+            changeTime += duration / 100;
+        }
+        currentTime = g_pISysTimer->pVTbl->get_SingleTimerCounter(g_pISysTimer);
+    }
+	g_pIVideo->pVTbl->WriteString(g_pIVideo, 0, 0, 25, row_pointer, CHARACTER_ATTRIBUTE_FORE_COLOR_GREEN, " -> Module J complete", 21);
 }
 
 /*
@@ -149,27 +348,45 @@ int16_t EcoMain(IEcoUnknown* pIUnk) {
     IEcoMemoryAllocator1* pIMem = 0;
     IEcoMemoryManager1* pIMemMgr = 0;
     IEcoInterfaceBus1MemExt* pIMemExt = 0;
-    IEcoVirtualMemory1* pIVrtMem = 0;
+    /* IEcoVirtualMemory1* pIVrtMem = 0; */  /* Недоступен */
     /* Указатель на интерфейс для работы с планировщиком */
     IEcoTaskScheduler1* pIScheduler = 0;
     IEcoTask1* pITask1 = 0;
     IEcoTask1* pITask2 = 0;
     IEcoTask1* pITask3 = 0;
+	IEcoTask1* pITask4 = 0;
+    IEcoTask1* pITask5 = 0;
+    IEcoTask1* pITask6 = 0;
+    IEcoTask1* pITask7 = 0;
+    IEcoTask1* pITask8 = 0;
+    IEcoTask1* pITask9 = 0;
+    IEcoTask1* pITask10 = 0;
     /* Указатель на интерфейс для работы c буфером кадров видеоустройства */
     IEcoVFB1* pIVFB = 0;
-    ECO_VFB_1_SCREEN_MODE xScreenMode = {0};
     IEcoVBIOS1Video* pIVideo = 0;
+    ECO_VFB_1_SCREEN_MODE xScreenMode = {0};
     /* Указатель на интерфейс для работы c системным таймером */
     IEcoSystemTimer1* pISysTimer = 0;
     /* Указатель на интерфейс для работы c таймером */
     IEcoTimer1* pITimer = 0;
 
-    char_t* strHello = "Hello, World!";
+/*
+    IEcoCGI1* pIEcoCGI1 = 0;
+    IEcoCGI1VirtualDevice* pIVD = 0;
+    IEcoCGI1OneWayOutput* pIOutput = 0;
+    ECO_CGI_1_VIEWPORT_POINT_t corner1 = {0};
+    ECO_CGI_1_VIEWPORT_POINT_t corner2 = {0};
+    ECO_CGI_1_POINT_t point1 = {0};
+    ECO_CGI_1_POINT_t line[5] = { {10,10}, {100,100}, {50, 100}, {50,10}, {10,10}};
+    ECO_CGI_1_POINT_LIST_t lineList = {5, line};
+*/
     uint16_t offset = 0;
-    uint16_t x1 = 0;
-    uint16_t y1 = 32;
-    uint16_t x2 = 70;
-    byte_t color = 170; /* 3-3-2 bit RGB */
+    uint16_t x1 = 7;
+    uint16_t y1 = 45;
+    uint16_t x2 = 139;
+    byte_t color = 172; /* 3-3-2 bit RGB */
+
+	/*uint64_t duration = 20ul;*/
 
     /* Создание экземпляра интерфейсной шины */
     result = GetIEcoComponentFactoryPtr_00000000000000000000000042757331->pVTbl->Alloc(GetIEcoComponentFactoryPtr_00000000000000000000000042757331, 0, 0, &IID_IEcoInterfaceBus1, (void **)&pIBus);
@@ -181,7 +398,7 @@ int16_t EcoMain(IEcoUnknown* pIUnk) {
 
     /* Регистрация статического компонента для работы с памятью */
     result = pIBus->pVTbl->RegisterComponent(pIBus, &CID_EcoMemoryManager1, (IEcoUnknown*)GetIEcoComponentFactoryPtr_0000000000000000000000004D656D31);
-    result = pIBus->pVTbl->RegisterComponent(pIBus, &CID_EcoMemoryManager1Lab, (IEcoUnknown*)GetIEcoComponentFactoryPtr_81589BFED0B84B1194524BEE623E1838);
+    //result = pIBus->pVTbl->RegisterComponent(pIBus, &CID_EcoMemoryManager1Lab, (IEcoUnknown*)GetIEcoComponentFactoryPtr_81589BFED0B84B1194524BEE623E1838);
     /* Проверка */
     if (result != 0) {
         /* Освобождение в случае ошибки */
@@ -217,13 +434,11 @@ int16_t EcoMain(IEcoUnknown* pIUnk) {
     /* Выделение области памяти 512 КБ */
     pIMemMgr->pVTbl->Init(pIMemMgr, &__heap_start__, 0x080000);
 
-    /* Получение интерфейса для работы с виртуальной памятью */
-    result = pIMemMgr->pVTbl->QueryInterface(pIMemMgr, &IID_IEcoVirtualMemory1, (void**)&pIVrtMem);
+    /* Получение интерфейса для работы с виртуальной памятью - отключено */
+    /* result = pIMemMgr->pVTbl->QueryInterface(pIMemMgr, &IID_IEcoVirtualMemory1, (void**)&pIVrtMem);
     if (result == 0 && pIVrtMem != 0) {
-        /* Инициализация виртуальной памяти */
         result = pIVrtMem->pVTbl->Init(pIVrtMem);
-        /* TO DO */
-    }
+    } */
     /* Регистрация статического компонента для работы с планировщиком */
     result = pIBus->pVTbl->RegisterComponent(pIBus, &CID_EcoTaskScheduler1Lab, (IEcoUnknown*)GetIEcoComponentFactoryPtr_902ABA722D34417BB714322CC761620F);
     /* Проверка */
@@ -248,21 +463,17 @@ int16_t EcoMain(IEcoUnknown* pIUnk) {
         goto Release;
     }
 
-    /* Регистрация статического компонента для работы с мьютекс */
-    result = pIBus->pVTbl->RegisterComponent(pIBus, &CID_EcoMutex1Lab, (IEcoUnknown*)GetIEcoComponentFactoryPtr_2F48BBCBE4884CC08ECFC45990017215);
-    /* Проверка */
+    /* Регистрация мьютекса и семафора отключена */
+    /* result = pIBus->pVTbl->RegisterComponent(pIBus, &CID_EcoMutex1Lab, (IEcoUnknown*)GetIEcoComponentFactoryPtr_2F48BBCBE4884CC08ECFC45990017215);
     if (result != 0) {
-        /* Освобождение в случае ошибки */
         goto Release;
     }
 
-    /* Регистрация статического компонента для работы с семафор */
     result = pIBus->pVTbl->RegisterComponent(pIBus, &CID_EcoSemaphore1Lab, (IEcoUnknown*)GetIEcoComponentFactoryPtr_0741985B8FD0476C867CAE177CD26E7C);
-    /* Проверка */
     if (result != 0) {
-        /* Освобождение в случае ошибки */
         goto Release;
-    }
+    } */
+
 
     /* Получение интерфейса для работы с планировщиком */
     result = pIBus->pVTbl->QueryComponent(pIBus, &CID_EcoTaskScheduler1Lab, 0, &IID_IEcoTaskScheduler1, (void**) &pIScheduler);
@@ -272,29 +483,35 @@ int16_t EcoMain(IEcoUnknown* pIUnk) {
         goto Release;
     }
 
-    /* Инициализация */
-    pIScheduler->pVTbl->InitWith(pIScheduler, pIBus, &__heap_start__+0x090000, 0x080000);
 
-    /* Создание статических задач */
-    pIScheduler->pVTbl->NewTask(pIScheduler, Task1, 0, 0x100, &pITask1);
-    pIScheduler->pVTbl->NewTask(pIScheduler, Task2, 0, 0x100, &pITask2);
-    pIScheduler->pVTbl->NewTask(pIScheduler, Task3, 0, 0x100, &pITask3);
-
-    /* Получение интерфейса для работы с мьютекс */
-    result = pIBus->pVTbl->QueryComponent(pIBus, &CID_EcoMutex1Lab, 0, &IID_IEcoMutex1, (void**) &g_pIMutex);
+	/* Получение интерфейса для работы с видео сервисами VBF */
+    result = pIBus->pVTbl->QueryComponent(pIBus, &CID_EcoVFB1, 0, &IID_IEcoVFB1, (void**) &pIVFB);
     /* Проверка */
+    if (result != 0 || pIVFB == 0) {
+        /* Освобождение в случае ошибки */
+        goto Release;
+    }
+
+    /* Получение информации о текущем режиме экрана */
+    result = pIVFB->pVTbl->get_Mode(pIVFB, &xScreenMode);
+    pIVFB->pVTbl->Create(pIVFB, 0, 0, xScreenMode.Width, xScreenMode.Height);
+
+    /* Получение интерфейса IEcoVBIOS1Video для вывода текста */
+    result = pIVFB->pVTbl->QueryInterface(pIVFB, &IID_IEcoVBIOS1Video, (void**) &pIVideo);
+    if (result != 0 || pIVideo == 0) {
+        goto Release;
+    }
+
+	    /* Получение мьютекса и семафора отключено */
+    /* result = pIBus->pVTbl->QueryComponent(pIBus, &CID_EcoMutex1Lab, 0, &IID_IEcoMutex1, (void**) &g_pIMutex);
     if (result != 0 || g_pIMutex == 0) {
-        /* Освобождение в случае ошибки */
         goto Release;
     }
 
-    /* Получение интерфейса для работы с семафор */
     result = pIBus->pVTbl->QueryComponent(pIBus, &CID_EcoSemaphore1Lab, 0, &IID_IEcoSemaphore1, (void**) &g_pISemaphore);
-    /* Проверка */
     if (result != 0 || g_pISemaphore == 0) {
-        /* Освобождение в случае ошибки */
         goto Release;
-    }
+    } */
 
     /* Получение интерфейса для работы с системным таймером */
     result = pIBus->pVTbl->QueryComponent(pIBus, &CID_EcoTimer1, 0, &IID_IEcoSystemTimer1, (void**) &pISysTimer);
@@ -313,36 +530,64 @@ int16_t EcoMain(IEcoUnknown* pIUnk) {
         goto Release;
     }
 
-    pITimer->pVTbl->set_Interval(pITimer, 100000);
-    pITimer->pVTbl->set_IrqHandler(pITimer, TimerHandler);
-    pITimer->pVTbl->Start(pITimer);
+	pIVideo->pVTbl->WriteString(pIVideo, 0, 0, 0, 0, CHARACTER_ATTRIBUTE_FORE_COLOR_YELLOW, "In process: ", 12);
 
-    /* Получение интерфейса для работы с видео сервисами VBF */
-    result = pIBus->pVTbl->QueryComponent(pIBus, &CID_EcoVFB1, 0, &IID_IEcoVFB1, (void**) &pIVFB);
-    /* Проверка */
-    if (result != 0 || pIVFB == 0) {
+    /* Инициализация */
+    pIScheduler->pVTbl->InitWith(pIScheduler, pIBus, &__heap_start__+0x090000, 0x080000);
+
+    /* Создание статических задач */
+	row_pointer = 4;
+
+    result = pIScheduler->pVTbl->NewTask(pIScheduler, Task1, 3500000ul, 0x100, &pITask1);
+	pIVideo->pVTbl->WriteString(pIVideo, 0, 0, 2, row_pointer, CHARACTER_ATTRIBUTE_FORE_COLOR_BLUE, "Job A registered", 16);
+	++row_pointer;
+    result = pIScheduler->pVTbl->NewTask(pIScheduler, Task2, 6000000ul, 0x100, &pITask2);
+	pIVideo->pVTbl->WriteString(pIVideo, 0, 0, 2, row_pointer, CHARACTER_ATTRIBUTE_FORE_COLOR_BLUE, "Process B registered", 20);
+	++row_pointer;
+    result = pIScheduler->pVTbl->NewTask(pIScheduler, Task3, 2500000ul, 0x100, &pITask3);
+	pIVideo->pVTbl->WriteString(pIVideo, 0, 0, 2, row_pointer, CHARACTER_ATTRIBUTE_FORE_COLOR_BLUE, "Operation C registered", 22);
+	++row_pointer;
+    result = pIScheduler->pVTbl->NewTask(pIScheduler, Task4, 9000000ul, 0x100, &pITask4);
+	pIVideo->pVTbl->WriteString(pIVideo, 0, 0, 2, row_pointer, CHARACTER_ATTRIBUTE_FORE_COLOR_BLUE, "Activity D registered", 21);
+	++row_pointer;
+    result = pIScheduler->pVTbl->NewTask(pIScheduler, Task5, 1200000ul, 0x100, &pITask5);
+	pIVideo->pVTbl->WriteString(pIVideo, 0, 0, 2, row_pointer, CHARACTER_ATTRIBUTE_FORE_COLOR_BLUE, "Work E registered", 17);
+	++row_pointer;
+    result = pIScheduler->pVTbl->NewTask(pIScheduler, Task6, 7500000ul, 0x100, &pITask6);
+	pIVideo->pVTbl->WriteString(pIVideo, 0, 0, 2, row_pointer, CHARACTER_ATTRIBUTE_FORE_COLOR_BLUE, "Procedure F registered", 22);
+	++row_pointer;
+    result = pIScheduler->pVTbl->NewTask(pIScheduler, Task7, 4000000ul, 0x100, &pITask7);
+	pIVideo->pVTbl->WriteString(pIVideo, 0, 0, 2, row_pointer, CHARACTER_ATTRIBUTE_FORE_COLOR_BLUE, "Routine G registered", 20);
+	++row_pointer;
+    result = pIScheduler->pVTbl->NewTask(pIScheduler, Task8, 10000000ul, 0x100, &pITask8);
+	pIVideo->pVTbl->WriteString(pIVideo, 0, 0, 2, row_pointer, CHARACTER_ATTRIBUTE_FORE_COLOR_BLUE, "Execution H registered", 22);
+	++row_pointer;
+    result = pIScheduler->pVTbl->NewTask(pIScheduler, Task9, 1800000ul, 0x100, &pITask9);
+	pIVideo->pVTbl->WriteString(pIVideo, 0, 0, 2, row_pointer, CHARACTER_ATTRIBUTE_FORE_COLOR_BLUE, "Function I registered", 21);
+	++row_pointer;
+    result = pIScheduler->pVTbl->NewTask(pIScheduler, Task10, 5200000ul, 0x100, &pITask10);
+	pIVideo->pVTbl->WriteString(pIVideo, 0, 0, 2, row_pointer, CHARACTER_ATTRIBUTE_FORE_COLOR_BLUE, "Module J registered", 19);
+	if (result != 0) {
         /* Освобождение в случае ошибки */
         goto Release;
     }
-
-    /* Получение информации о текущем режиме экрана */
-    result = pIVFB->pVTbl->get_Mode(pIVFB, &xScreenMode);
-    pIVFB->pVTbl->Create(pIVFB, 0, 0, xScreenMode.Width, xScreenMode.Height);
-    result = pIVFB->pVTbl->QueryInterface(pIVFB, &IID_IEcoVBIOS1Video, (void**) &pIVideo);
-
-    pIVideo->pVTbl->WriteString(pIVideo, 0, 0, 4, 5, CHARACTER_ATTRIBUTE_FORE_COLOR_WHITTE, strHello, 13);
+	row_pointer += 2;
 
     /* Вывод 1 строки "Эко ОС!!!" - кодовая страница 1251 */
-    pIVideo->pVTbl->WriteString(pIVideo, 0, 0, 0, 1, CHARACTER_ATTRIBUTE_FORE_COLOR_YELLOW, "\xdd\xea\xee\x20\xce\xd1\x21\x21\x21", 9);
+    pIVideo->pVTbl->WriteString(pIVideo, 0, 0, 1, 2, CHARACTER_ATTRIBUTE_FORE_COLOR_YELLOW, "Welcome to EcoOS!", 17);
 
     /* Рисуем линию - подчеркивание */
     for (offset = x1; offset <= x2; offset++) {
         pIVideo->pVTbl->WriteDot(pIVideo, color, 0, offset, y1);
     }
 
-    /* Вывод 4 строки "Привет Мир!" */
-    pIVideo->pVTbl->WriteString(pIVideo, 0, 0, 4, 4, CHARACTER_ATTRIBUTE_FORE_COLOR_GREEN, "\xcf\xf0\xe8\xe2\xe5\xf2\x20\xcc\xe8\xf0\x21", 11);
-    pIVideo->pVTbl->WriteString(pIVideo, 0, 0, 4, 5, CHARACTER_ATTRIBUTE_FORE_COLOR_WHITTE, strHello, 13);
+	/* Запуск планировщика */
+	pITimer->pVTbl->set_Interval(pITimer, 100000);
+    pITimer->pVTbl->set_IrqHandler(pITimer, TimerHandler);
+    pITimer->pVTbl->Start(pITimer);
+
+
+    g_pIVFB = pIVFB;
     g_pIVideo = pIVideo;
     pIScheduler->pVTbl->Start(pIScheduler);
 

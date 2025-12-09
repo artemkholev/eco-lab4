@@ -27,7 +27,7 @@
 CEcoTaskScheduler1Lab_C761620F g_xCEcoTaskScheduler1Lab_C761620F = {0};
 
 /* Резервируем область под статические задачи */
-#define MAX_STATIC_TASK_COUNT   3
+#define MAX_STATIC_TASK_COUNT 10
 CEcoTask1Lab_C761620F g_xCEcoTask1List_C761620F[MAX_STATIC_TASK_COUNT] = {0};
 
 /* Резервируем область под стеки статических задач */
@@ -63,7 +63,7 @@ uint64_t g_indx = 0;
         //}
 
    // g_xCEcoTaskScheduler1Lab_C761620F.m_pIArmTimer->pVTbl->Reset(g_xCEcoTaskScheduler1Lab_C761620F.m_pIArmTimer);
-    g_xCEcoTask1List_C761620F[g_indx].pfunc();
+    g_xCEcoTask1List_C761620F[g_indx].pfunc(g_xCEcoTask1List_C761620F[g_indx].duration);
 }
 
 /*
@@ -310,9 +310,10 @@ static int16_t ECOCALLMETHOD CEcoTaskScheduler1Lab_C761620F_NewTask(/*in*/ IEcoT
     }
 
     /* Проверяем указатель пула статических задач */
-    for (indx = 0; indx < 3; indx++) {
+    for (indx = 0; indx < MAX_STATIC_TASK_COUNT; indx++) {
         if (g_xCEcoTask1List_C761620F[indx].pfunc == 0) {
             g_xCEcoTask1List_C761620F[indx].pfunc = address;
+			g_xCEcoTask1List_C761620F[indx].duration = (uint64_t)data;
             g_xCEcoTask1List_C761620F[indx].m_cRef = 1;
             g_xCEcoTask1List_C761620F[indx].m_sp = (byte_t*)&g_xCEcoStackTask1List_C761620F[indx*4096];
             pxTopOfStack = g_xCEcoTask1List_C761620F[indx].m_sp;
@@ -464,20 +465,18 @@ static int16_t ECOCALLMETHOD CEcoTaskScheduler1Lab_C761620F_Start(/*in*/ IEcoTas
 
     /* Передаем управление задаче */
     while (1) {
-        if (g_pxCurrentTCB_C761620F == (uint64_t*)&pCMe->m_pTaskList[g_indx] && pCMe->m_pTaskList[g_indx].pfunc != 0) {
-            pCMe->m_pTaskList[g_indx].pfunc();
-            g_indx++;
-            if (g_indx >= MAX_STATIC_TASK_COUNT) {
-                g_indx = 0;
-            }
-            else if (pCMe->m_pTaskList[g_indx].pfunc == 0) {
-                g_indx = 0;
-            }
-            g_pxCurrentTCB_C761620F = (uint64_t*)&pCMe->m_pTaskList[g_indx];
-        }
-        else {
-            asm volatile ("NOP\n\t" ::: "memory");
-        }
+		size_t i = 0;
+		uint64_t maxDuration = 0;
+		for (i = 0; i < MAX_STATIC_TASK_COUNT; ++i) {
+			if (pCMe->m_pTaskList[i].pfunc != 0 && pCMe->m_pTaskList[i].duration > maxDuration) {
+				g_indx = i;
+				maxDuration = pCMe->m_pTaskList[i].duration;
+			}
+		}
+		pCMe->m_pTaskList[g_indx].pfunc(maxDuration);
+		pCMe->m_pTaskList[g_indx].pfunc = 0;
+		maxDuration = 0;
+		g_indx = 0;
     }
     return 0;
 }

@@ -35,7 +35,10 @@ typedef struct CEcoTask1Lab_C761620F {
     volatile byte_t* m_sp;
 
     /* Данные экземпляра */
-    void (*pfunc) (void);
+    void (*pfunc) (uint64_t);
+
+	/* Длительность выполнения */
+	uint64_t duration;
 
 } CEcoTask1Lab_C761620F, *CEcoTask1Lab_C761620F_Ptr;
 

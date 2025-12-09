@@ -150,6 +150,17 @@ int16_t ECOCALLMETHOD CEcoTask1Lab_C761620F_Yield(/*in*/ IEcoTask1Ptr_t me) {
     return 0;
 }
 
+int16_t ECOCALLMETHOD CEcoTask1Lab_C761620F_SetDuration(/*in*/ IEcoTask1Ptr_t me, uint64_t duration) {
+    CEcoTask1Lab_C761620F* pCMe = (CEcoTask1Lab_C761620F*)me;
+
+    /* Проверка указателя */
+    if (me == 0 ) {
+        return -1;
+    }
+	pCMe->duration = duration;
+    return 0;
+}
+
 
 /* Create Virtual Table IEcoTask1 */
 IEcoTask1VTbl g_x81A466F4C27540B1B33D0661E5470F1BVTbl_C761620F = {
@@ -157,6 +168,7 @@ IEcoTask1VTbl g_x81A466F4C27540B1B33D0661E5470F1BVTbl_C761620F = {
     CEcoTask1Lab_C761620F_AddRef,
     CEcoTask1Lab_C761620F_Release,
     CEcoTask1Lab_C761620F_Delay,
-    CEcoTask1Lab_C761620F_Yield
+    CEcoTask1Lab_C761620F_Yield,
+	CEcoTask1Lab_C761620F_SetDuration
 };
 
