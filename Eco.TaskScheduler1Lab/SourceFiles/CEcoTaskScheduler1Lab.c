@@ -52,18 +52,31 @@ uint64_t g_indx = 0;
  */
 
 /*__attribute__((naked))*/ void CEcoTaskScheduler1Lab_C761620F_TaskSwitchContext( void ) {
+    uint64_t startIndx = g_indx;
 
-        //if (g_pxCurrentTCB_C761620F == (uint64_t*)&g_xCEcoTask1List_C761620F[g_indx] && g_xCEcoTask1List_C761620F[g_indx].pfunc != 0) {
-            g_indx++;
-            if (g_indx > 1) {
-                g_indx = 0;
-            }
+    /* Round-Robin переключение на следующую задачу */
+    do {
+        g_indx++;
+        if (g_indx >= MAX_STATIC_TASK_COUNT) {
+            g_indx = 0;
+        }
 
-          //  g_pxCurrentTCB_C761620F = (uint64_t*)&g_xCEcoTask1List_C761620F[g_indx];
-        //}
+        /* Проверка: нашли задачу с непустой функцией */
+        if (g_xCEcoTask1List_C761620F[g_indx].pfunc != 0) {
+            g_pxCurrentTCB_C761620F = (uint64_t*)&g_xCEcoTask1List_C761620F[g_indx];
+            break;
+        }
 
-   // g_xCEcoTaskScheduler1Lab_C761620F.m_pIArmTimer->pVTbl->Reset(g_xCEcoTaskScheduler1Lab_C761620F.m_pIArmTimer);
-    g_xCEcoTask1List_C761620F[g_indx].pfunc(g_xCEcoTask1List_C761620F[g_indx].duration);
+        /* Если прошли полный круг и не нашли задачи - остаемся на текущей */
+        if (g_indx == startIndx) {
+            break;
+        }
+    } while (1);
+
+    /* Сброс таймера для следующего прерывания */
+    if (g_xCEcoTaskScheduler1Lab_C761620F.m_pIArmTimer != 0) {
+        g_xCEcoTaskScheduler1Lab_C761620F.m_pIArmTimer->pVTbl->Reset(g_xCEcoTaskScheduler1Lab_C761620F.m_pIArmTimer);
+    }
 }
 
 /*
@@ -80,63 +93,63 @@ uint64_t g_indx = 0;
 void CEcoTaskScheduler1Lab_C761620F_TimerHandler(void) {
 
     /* Сохранение контекста текущей задачи */
-    //__asm volatile (
-    //"STP 	X0, X1, [SP, #-0x10]! \n"
-    //"STP 	X2, X3, [SP, #-0x10]! \n"
-    //"STP 	X4, X5, [SP, #-0x10]! \n"
-    //"STP 	X6, X7, [SP, #-0x10]! \n"
-    //"STP 	X8, X9, [SP, #-0x10]! \n"
-    //"STP 	X10, X11, [SP, #-0x10]!\n"
-    //"STP 	X12, X13, [SP, #-0x10]!\n"
-    //"STP 	X14, X15, [SP, #-0x10]!\n"
-    //"STP 	X16, X17, [SP, #-0x10]!\n"
-    //"STP 	X18, X19, [SP, #-0x10]!\n"
-    //"STP 	X20, X21, [SP, #-0x10]!\n"
-    //"STP 	X22, X23, [SP, #-0x10]!\n"
-    //"STP 	X24, X25, [SP, #-0x10]!\n"
-    //"STP 	X26, X27, [SP, #-0x10]!\n"
-    //"STP 	X28, X29, [SP, #-0x10]!\n"
-    //"STP 	X30, XZR, [SP, #-0x10]!\n"
-    //"MRS		X3, SPSR_EL1\n"
-    //"MRS		X2, ELR_EL1\n"
-    //"STP 	X2, X3, [SP, #-0x10]!\n"
-    //"LDR 	X0, =g_pxCurrentTCB_C761620F \n"
-    //"LDR 	X1, [X0] \n"
-    //"MOV 	X0, SP \n"
-    //"STR 	X0, [X1] \n"
-    //);
+    __asm__ volatile (
+    "STP 	X0, X1, [SP, #-0x10]! \n"
+    "STP 	X2, X3, [SP, #-0x10]! \n"
+    "STP 	X4, X5, [SP, #-0x10]! \n"
+    "STP 	X6, X7, [SP, #-0x10]! \n"
+    "STP 	X8, X9, [SP, #-0x10]! \n"
+    "STP 	X10, X11, [SP, #-0x10]!\n"
+    "STP 	X12, X13, [SP, #-0x10]!\n"
+    "STP 	X14, X15, [SP, #-0x10]!\n"
+    "STP 	X16, X17, [SP, #-0x10]!\n"
+    "STP 	X18, X19, [SP, #-0x10]!\n"
+    "STP 	X20, X21, [SP, #-0x10]!\n"
+    "STP 	X22, X23, [SP, #-0x10]!\n"
+    "STP 	X24, X25, [SP, #-0x10]!\n"
+    "STP 	X26, X27, [SP, #-0x10]!\n"
+    "STP 	X28, X29, [SP, #-0x10]!\n"
+    "STP 	X30, XZR, [SP, #-0x10]!\n"
+    "MRS		X3, SPSR_EL1\n"
+    "MRS		X2, ELR_EL1\n"
+    "STP 	X2, X3, [SP, #-0x10]!\n"
+    "LDR 	X0, =g_pxCurrentTCB_C761620F \n"
+    "LDR 	X1, [X0] \n"
+    "MOV 	X0, SP \n"
+    "STR 	X0, [X1] \n"
+    );
     /* Переключение контекста задач */
-    __asm volatile (
+    __asm__ volatile (
     "BL 	CEcoTaskScheduler1Lab_C761620F_TaskSwitchContext \n"
     );
 
     /* Востановление контекста следующей задачи */
-    //__asm volatile ( "LDR		X0, =g_pxCurrentTCB_C761620F \n"
-    //"LDR		X1, [X0] \n"
-    //"LDR		X0, [X1] \n"
-    //"MOV		SP, X0 \n"
-    //"LDP 	X2, X3, [SP], #0x10 \n"
-    //"MSR		SPSR_EL1, X3 \n"
-    //"MSR		ELR_EL1, X2 \n"
-    //"LDP 	X30, XZR, [SP], #0x10 \n"
-    //"LDP 	X28, X29, [SP], #0x10 \n"
-    //"LDP 	X26, X27, [SP], #0x10 \n"
-    //"LDP 	X24, X25, [SP], #0x10 \n"
-    //"LDP 	X22, X23, [SP], #0x10 \n"
-    //"LDP 	X20, X21, [SP], #0x10 \n"
-    //"LDP 	X18, X19, [SP], #0x10 \n"
-    //"LDP 	X16, X17, [SP], #0x10 \n"
-    //"LDP 	X14, X15, [SP], #0x10 \n"
-    //"LDP 	X12, X13, [SP], #0x10 \n"
-    //"LDP 	X10, X11, [SP], #0x10 \n"
-    //"LDP 	X8, X9, [SP], #0x10 \n"
-    //"LDP 	X6, X7, [SP], #0x10 \n"
-    //"LDP 	X4, X5, [SP], #0x10 \n"
-    //"LDP 	X2, X3, [SP], #0x10 \n"
-    //"LDP 	X0, X1, [SP], #0x10 \n"
-    //"ERET \n"
-    //);
-    
+    __asm__ volatile ( "LDR		X0, =g_pxCurrentTCB_C761620F \n"
+    "LDR		X1, [X0] \n"
+    "LDR		X0, [X1] \n"
+    "MOV		SP, X0 \n"
+    "LDP 	X2, X3, [SP], #0x10 \n"
+    "MSR		SPSR_EL1, X3 \n"
+    "MSR		ELR_EL1, X2 \n"
+    "LDP 	X30, XZR, [SP], #0x10 \n"
+    "LDP 	X28, X29, [SP], #0x10 \n"
+    "LDP 	X26, X27, [SP], #0x10 \n"
+    "LDP 	X24, X25, [SP], #0x10 \n"
+    "LDP 	X22, X23, [SP], #0x10 \n"
+    "LDP 	X20, X21, [SP], #0x10 \n"
+    "LDP 	X18, X19, [SP], #0x10 \n"
+    "LDP 	X16, X17, [SP], #0x10 \n"
+    "LDP 	X14, X15, [SP], #0x10 \n"
+    "LDP 	X12, X13, [SP], #0x10 \n"
+    "LDP 	X10, X11, [SP], #0x10 \n"
+    "LDP 	X8, X9, [SP], #0x10 \n"
+    "LDP 	X6, X7, [SP], #0x10 \n"
+    "LDP 	X4, X5, [SP], #0x10 \n"
+    "LDP 	X2, X3, [SP], #0x10 \n"
+    "LDP 	X0, X1, [SP], #0x10 \n"
+    "ERET \n"
+    );
+
 }
 
 
@@ -459,24 +472,36 @@ static int16_t ECOCALLMETHOD CEcoTaskScheduler1Lab_C761620F_Start(/*in*/ IEcoTas
         return -1;
     }
 
-    /* Запускаем таймер */
-    //pCMe->m_pIArmTimer->pVTbl->Start(pCMe->m_pIArmTimer);
+    /* Установка первой задачи */
+    g_indx = 0;
     g_pxCurrentTCB_C761620F = (uint64_t*)&pCMe->m_pTaskList[0];
 
-    /* Передаем управление задаче */
+    /* Запускаем таймер для вытесняющей многозадачности */
+    pCMe->m_pIArmTimer->pVTbl->Start(pCMe->m_pIArmTimer);
+
     while (1) {
-		size_t i = 0;
-		uint64_t maxDuration = 0;
-		for (i = 0; i < MAX_STATIC_TASK_COUNT; ++i) {
-			if (pCMe->m_pTaskList[i].pfunc != 0 && pCMe->m_pTaskList[i].duration > maxDuration) {
-				g_indx = i;
-				maxDuration = pCMe->m_pTaskList[i].duration;
-			}
-		}
-		pCMe->m_pTaskList[g_indx].pfunc(maxDuration);
-		pCMe->m_pTaskList[g_indx].pfunc = 0;
-		maxDuration = 0;
-		g_indx = 0;
+        size_t i = 0;
+        uint64_t maxDuration = 0;
+
+        /* Поиск задачи с максимальной длительностью (LJF алгоритм) */
+        for (i = 0; i < MAX_STATIC_TASK_COUNT; ++i) {
+            if (pCMe->m_pTaskList[i].pfunc != 0 && pCMe->m_pTaskList[i].duration > maxDuration) {
+                g_indx = i;
+                maxDuration = pCMe->m_pTaskList[i].duration;
+            }
+        }
+
+        /* Если есть задачи для выполнения */
+        if (maxDuration > 0) {
+            /* Запуск задачи - она будет вытесняться таймером */
+            pCMe->m_pTaskList[g_indx].pfunc(maxDuration);
+
+            /* После завершения задачи удаляем её */
+            pCMe->m_pTaskList[g_indx].pfunc = 0;
+            maxDuration = 0;
+        } else {
+            __asm__ volatile ("WFI");
+        }
     }
     return 0;
 }

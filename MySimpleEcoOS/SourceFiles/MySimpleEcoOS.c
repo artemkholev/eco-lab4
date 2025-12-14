@@ -35,6 +35,11 @@
 /* Начало свободного участка памяти */
 extern char_t __heap_start__;
 
+/* Функция отладочного вывода (заглушка) */
+void debug_print(const char* msg) {
+    /* Заглушка для функции отладочного вывода */
+}
+
 /* Указатель на интерфейсы */
 IEcoVFB1* g_pIVFB = 0;
 IEcoVBIOS1Video* g_pIVideo = 0;
@@ -98,23 +103,16 @@ void PrintPercent(int32_t percent, uint32_t column, uint32_t row) {
 	percent /= 10;
 	digit = percent % 10;
 	to_print[0] = '0' + digit;
-	g_pIVideo->pVTbl->WriteString(g_pIVideo, 0, 0, column, row, CHARACTER_ATTRIBUTE_FORE_COLOR_LIGHT_RED, to_print, 3);
+	g_pIVideo->pVTbl->WriteString(g_pIVideo, 0, 0, column, row, CHARACTER_ATTRIBUTE_FORE_COLOR_LIGHT_CYAN, to_print, 3);
 }
 
 void printProgress() {
-	size_t i = 0;
-	//task_progress = task_progress % 100;
-	PrintPercent(task_progress, 22, 1);
-	task_progress /= 5;
-	g_pIVideo->pVTbl->WriteString(g_pIVideo, 0, 0, 0, 1, CHARACTER_ATTRIBUTE_FORE_COLOR_LIGHT_GREEN, "[", 1);
-	for (i = 1; i < task_progress; ++i) {
-		g_pIVideo->pVTbl->WriteString(g_pIVideo, 0, 0, i, 1, CHARACTER_ATTRIBUTE_FORE_COLOR_LIGHT_GREEN, "=", 1);
-	}
-	g_pIVideo->pVTbl->WriteString(g_pIVideo, 0, 0, task_progress, 1, CHARACTER_ATTRIBUTE_FORE_COLOR_LIGHT_GREEN, ">", 1);
-	for (i = task_progress + 1; i < 20; ++i) {
-		g_pIVideo->pVTbl->WriteString(g_pIVideo, 0, 0, i, 1, CHARACTER_ATTRIBUTE_FORE_COLOR_LIGHT_GREEN, " ", 1);
-	}
-	g_pIVideo->pVTbl->WriteString(g_pIVideo, 0, 0, 20, 1, CHARACTER_ATTRIBUTE_FORE_COLOR_LIGHT_GREEN, "] ", 2);
+	/* Выводим крутилку */
+	g_pIVideo->pVTbl->WriteString(g_pIVideo, 0, 0, 0, 1, CHARACTER_ATTRIBUTE_FORE_COLOR_LIGHT_CYAN, g_strTask, 1);
+	/* Выводим пробел */
+	g_pIVideo->pVTbl->WriteString(g_pIVideo, 0, 0, 1, 1, CHARACTER_ATTRIBUTE_FORE_COLOR_LIGHT_CYAN, " ", 1);
+	/* Выводим проценты */
+	PrintPercent(task_progress, 2, 1);
 }
 
 void Task1(uint64_t duration) {
@@ -209,7 +207,7 @@ void Task5(uint64_t duration) {
 	uint64_t startTime = currentTime;
 	task_progress = 0;
 	++row_pointer;
-	g_pIVideo->pVTbl->WriteString(g_pIVideo, 0, 0, 2, row_pointer, CHARACTER_ATTRIBUTE_FORE_COLOR_MAGENTA, "Work E in progress", 18);
+	g_pIVideo->pVTbl->WriteString(g_pIVideo, 0, 0, 2, row_pointer, CHARACTER_ATTRIBUTE_FORE_COLOR_MAGENTA, "Work E executing", 16);
     g_pIVideo->pVTbl->WriteString(g_pIVideo, 0, 0, 12, 0, CHARACTER_ATTRIBUTE_FORE_COLOR_MAGENTA, "Work E", 6);
     while ( endTime >= currentTime) {
         if (changeTime <= currentTime) {
@@ -530,7 +528,7 @@ int16_t EcoMain(IEcoUnknown* pIUnk) {
         goto Release;
     }
 
-	pIVideo->pVTbl->WriteString(pIVideo, 0, 0, 0, 0, CHARACTER_ATTRIBUTE_FORE_COLOR_YELLOW, "In process: ", 12);
+	pIVideo->pVTbl->WriteString(pIVideo, 0, 0, 0, 0, CHARACTER_ATTRIBUTE_FORE_COLOR_LIGHT_MAGENTA, "Status: ", 8);
 
     /* Инициализация */
     pIScheduler->pVTbl->InitWith(pIScheduler, pIBus, &__heap_start__+0x090000, 0x080000);
@@ -574,7 +572,7 @@ int16_t EcoMain(IEcoUnknown* pIUnk) {
 	row_pointer += 2;
 
     /* Вывод 1 строки "Эко ОС!!!" - кодовая страница 1251 */
-    pIVideo->pVTbl->WriteString(pIVideo, 0, 0, 1, 2, CHARACTER_ATTRIBUTE_FORE_COLOR_YELLOW, "Welcome to EcoOS!", 17);
+    /* pIVideo->pVTbl->WriteString(pIVideo, 0, 0, 1, 2, CHARACTER_ATTRIBUTE_FORE_COLOR_YELLOW, "Welcome to EcoOS!", 17); */
 
     /* Рисуем линию - подчеркивание */
     for (offset = x1; offset <= x2; offset++) {
