@@ -39,6 +39,12 @@ uint64_t * volatile g_pxCurrentTCB_C761620F = 0;
 
 uint64_t g_indx = 0;
 
+/* Время последнего переключения задачи */
+uint64_t g_lastSwitchTime = 0;
+
+/* Интервал таймера в тиках */
+uint64_t g_timerInterval = 1000000;
+
 /*
  *
  * <сводка>
@@ -52,26 +58,38 @@ uint64_t g_indx = 0;
  */
 
 /*__attribute__((naked))*/ void CEcoTaskScheduler1Lab_C761620F_TaskSwitchContext( void ) {
-    uint64_t startIndx = g_indx;
+    size_t i = 0;
+    uint64_t maxRemainingDuration = 0;
+    int32_t maxIndex = -1;
+    uint64_t currentTaskIndx = g_indx;
 
-    /* Round-Robin переключение на следующую задачу */
-    do {
-        g_indx++;
-        if (g_indx >= MAX_STATIC_TASK_COUNT) {
-            g_indx = 0;
+    /* Уменьшаем remaining_duration для текущей задачи на величину интервала таймера */
+    if (g_xCEcoTask1List_C761620F[currentTaskIndx].pfunc != 0 &&
+        !g_xCEcoTask1List_C761620F[currentTaskIndx].is_finished) {
+        if (g_xCEcoTask1List_C761620F[currentTaskIndx].remaining_duration > g_timerInterval) {
+            g_xCEcoTask1List_C761620F[currentTaskIndx].remaining_duration -= g_timerInterval;
+        } else {
+            /* Задача завершена */
+            g_xCEcoTask1List_C761620F[currentTaskIndx].remaining_duration = 0;
+            g_xCEcoTask1List_C761620F[currentTaskIndx].is_finished = 1;
         }
+    }
 
-        /* Проверка: нашли задачу с непустой функцией */
-        if (g_xCEcoTask1List_C761620F[g_indx].pfunc != 0) {
-            g_pxCurrentTCB_C761620F = (uint64_t*)&g_xCEcoTask1List_C761620F[g_indx];
-            break;
+    /* LJF с вытеснением: выбираем задачу с максимальной оставшейся длительностью */
+    for (i = 0; i < MAX_STATIC_TASK_COUNT; ++i) {
+        if (g_xCEcoTask1List_C761620F[i].pfunc != 0 &&
+            !g_xCEcoTask1List_C761620F[i].is_finished &&
+            g_xCEcoTask1List_C761620F[i].remaining_duration > maxRemainingDuration) {
+            maxRemainingDuration = g_xCEcoTask1List_C761620F[i].remaining_duration;
+            maxIndex = i;
         }
+    }
 
-        /* Если прошли полный круг и не нашли задачи - остаемся на текущей */
-        if (g_indx == startIndx) {
-            break;
-        }
-    } while (1);
+    /* Если нашли задачу, переключаемся на неё */
+    if (maxIndex >= 0) {
+        g_indx = maxIndex;
+        g_pxCurrentTCB_C761620F = (uint64_t*)&g_xCEcoTask1List_C761620F[g_indx];
+    }
 
     /* Сброс таймера для следующего прерывания */
     if (g_xCEcoTaskScheduler1Lab_C761620F.m_pIArmTimer != 0) {
@@ -327,6 +345,8 @@ static int16_t ECOCALLMETHOD CEcoTaskScheduler1Lab_C761620F_NewTask(/*in*/ IEcoT
         if (g_xCEcoTask1List_C761620F[indx].pfunc == 0) {
             g_xCEcoTask1List_C761620F[indx].pfunc = address;
 			g_xCEcoTask1List_C761620F[indx].duration = (uint64_t)data;
+			g_xCEcoTask1List_C761620F[indx].remaining_duration = (uint64_t)data;
+			g_xCEcoTask1List_C761620F[indx].is_finished = 0;
             g_xCEcoTask1List_C761620F[indx].m_cRef = 1;
             g_xCEcoTask1List_C761620F[indx].m_sp = (byte_t*)&g_xCEcoStackTask1List_C761620F[indx*4096];
             pxTopOfStack = g_xCEcoTask1List_C761620F[indx].m_sp;
@@ -466,43 +486,46 @@ static int16_t ECOCALLMETHOD CEcoTaskScheduler1Lab_C761620F_UnRegisterInterrupt(
  */
 static int16_t ECOCALLMETHOD CEcoTaskScheduler1Lab_C761620F_Start(/*in*/ IEcoTaskScheduler1Ptr_t me) {
     CEcoTaskScheduler1Lab_C761620F* pCMe = (CEcoTaskScheduler1Lab_C761620F*)me;
+    size_t i = 0;
+    uint64_t maxDuration = 0;
+    int32_t maxIndex = -1;
 
     /* Проверка указателей */
     if (me == 0 ) {
         return -1;
     }
 
-    /* Установка первой задачи */
-    g_indx = 0;
-    g_pxCurrentTCB_C761620F = (uint64_t*)&pCMe->m_pTaskList[0];
+    /* Поиск задачи с максимальной начальной длительностью для первого запуска */
+    for (i = 0; i < MAX_STATIC_TASK_COUNT; ++i) {
+        if (pCMe->m_pTaskList[i].pfunc != 0 && pCMe->m_pTaskList[i].duration > maxDuration) {
+            maxIndex = i;
+            maxDuration = pCMe->m_pTaskList[i].duration;
+        }
+    }
+
+    /* Установка первой задачи (с максимальной длительностью) */
+    if (maxIndex >= 0) {
+        g_indx = maxIndex;
+        g_pxCurrentTCB_C761620F = (uint64_t*)&pCMe->m_pTaskList[maxIndex];
+    } else {
+        return -1; /* Нет задач для выполнения */
+    }
 
     /* Запускаем таймер для вытесняющей многозадачности */
     pCMe->m_pIArmTimer->pVTbl->Start(pCMe->m_pIArmTimer);
 
-    while (1) {
-        size_t i = 0;
-        uint64_t maxDuration = 0;
-
-        /* Поиск задачи с максимальной длительностью (LJF алгоритм) */
-        for (i = 0; i < MAX_STATIC_TASK_COUNT; ++i) {
-            if (pCMe->m_pTaskList[i].pfunc != 0 && pCMe->m_pTaskList[i].duration > maxDuration) {
-                g_indx = i;
-                maxDuration = pCMe->m_pTaskList[i].duration;
-            }
-        }
-
-        /* Если есть задачи для выполнения */
-        if (maxDuration > 0) {
-            /* Запуск задачи - она будет вытесняться таймером */
-            pCMe->m_pTaskList[g_indx].pfunc(maxDuration);
-
-            /* После завершения задачи удаляем её */
-            pCMe->m_pTaskList[g_indx].pfunc = 0;
-            maxDuration = 0;
-        } else {
-            __asm__ volatile ("WFI");
+    /* Запускаем ВСЕ задачи последовательно - каждая будет прервана таймером */
+    for (i = 0; i < MAX_STATIC_TASK_COUNT; ++i) {
+        if (pCMe->m_pTaskList[i].pfunc != 0) {
+            pCMe->m_pTaskList[i].pfunc(pCMe->m_pTaskList[i].duration);
         }
     }
+
+    /* После завершения всех задач  */
+    while (1) {
+        __asm__ volatile ("WFI");
+    }
+
     return 0;
 }
 
